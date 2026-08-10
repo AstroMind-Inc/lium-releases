@@ -39,13 +39,29 @@ version="${LIUM_VERSION:-latest}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 
-say "Downloading ${asset} (${version})…"
 if [[ "${version}" == "latest" ]]; then
-  url="https://github.com/${REPO}/releases/latest/download/${asset}"
+  base_url="https://github.com/${REPO}/releases/latest/download"
 else
-  url="https://github.com/${REPO}/releases/download/${version}/${asset}"
+  base_url="https://github.com/${REPO}/releases/download/${version}"
 fi
-curl -fsSL -o "${tmp}/lium" "${url}" || die "download failed: ${url}"
+
+say "Downloading ${asset} (${version})…"
+curl -fsSL -o "${tmp}/lium" "${base_url}/${asset}" || die "download failed: ${base_url}/${asset}"
+curl -fsSL -o "${tmp}/checksums.txt" "${base_url}/checksums.txt" ||
+  die "download failed: ${base_url}/checksums.txt"
+
+# Verify the binary against the release's published checksum before
+# installing anything onto PATH.
+expected="$(awk -v name="${asset}" '$2 == name || $2 == "bin/"name { print $1; exit }' "${tmp}/checksums.txt")"
+[[ -n "${expected}" ]] || die "checksums.txt has no entry for ${asset}"
+if command -v sha256sum >/dev/null 2>&1; then
+  actual="$(sha256sum "${tmp}/lium" | awk '{print $1}')"
+else
+  actual="$(shasum -a 256 "${tmp}/lium" | awk '{print $1}')"
+fi
+[[ "${actual}" == "${expected}" ]] ||
+  die "checksum mismatch for ${asset}: expected ${expected}, got ${actual}"
+say "Checksum verified."
 chmod +x "${tmp}/lium"
 
 install_dir="${LIUM_INSTALL_DIR:-}"
