@@ -15,6 +15,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Syntax check
-        run: bash -n install.sh
+        run: bash -n install.sh scripts/test-install.sh
       - name: ShellCheck
-        run: shellcheck install.sh
+        run: shellcheck install.sh scripts/test-install.sh
+      - name: Installer security tests
+        run: bash scripts/test-install.sh

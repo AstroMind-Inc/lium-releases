@@ -80,6 +80,13 @@ published sha256 checksums before installing it.
 The Lium CLI is distributed under the [Apache License 2.0](LICENSE). Use of
 the Lium service itself is governed by your Lium account terms.
 
+Copyright 2026 AstroMind, Inc.
+
+The CLI binary statically links permissively licensed open-source
+dependencies. Their copyright and license notices are published with every
+release as
+[THIRD-PARTY-NOTICES.txt](https://github.com/AstroMind-Inc/lium-releases/releases/latest/download/THIRD-PARTY-NOTICES.txt).
+
 ## Support
 
 Questions and issues: [lium.ai](https://lium.ai)
