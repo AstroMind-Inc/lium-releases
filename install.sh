@@ -36,6 +36,26 @@ esac
 asset="lium.${os}-${arch}"
 version="${LIUM_VERSION:-latest}"
 
+# LIUM_VERSION is interpolated into the download URL, and curl removes ../
+# path segments before sending the request. Without this guard a tag
+# containing ../ redirects both the binary and checksums.txt to an arbitrary
+# GitHub repository, so an attacker who sets this variable supplies the
+# artifact and the checksum it is verified against — defeating the check
+# below entirely.
+if [[ "${version}" != "latest" && ! "${version}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+  die "invalid LIUM_VERSION: ${version}"
+fi
+
+# A SHA-256 tool is required, not optional: without one there is nothing to
+# verify against and installing anyway would silently skip the check.
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256_cmd=(sha256sum)
+elif command -v shasum >/dev/null 2>&1; then
+  sha256_cmd=(shasum -a 256)
+else
+  die "no SHA-256 tool found (need sha256sum or shasum) — cannot verify the download"
+fi
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 
@@ -51,14 +71,14 @@ curl -fsSL -o "${tmp}/checksums.txt" "${base_url}/checksums.txt" ||
   die "download failed: ${base_url}/checksums.txt"
 
 # Verify the binary against the release's published checksum before
-# installing anything onto PATH.
-expected="$(awk -v name="${asset}" '$2 == name || $2 == "bin/"name { print $1; exit }' "${tmp}/checksums.txt")"
+# installing anything onto PATH. sha256sum in binary mode prefixes the name
+# with '*', so strip it rather than silently failing to match.
+expected="$(awk -v name="${asset}" '
+  { sub(/^\*/, "", $2) }
+  $2 == name || $2 == "bin/" name { print $1; exit }
+' "${tmp}/checksums.txt")"
 [[ -n "${expected}" ]] || die "checksums.txt has no entry for ${asset}"
-if command -v sha256sum >/dev/null 2>&1; then
-  actual="$(sha256sum "${tmp}/lium" | awk '{print $1}')"
-else
-  actual="$(shasum -a 256 "${tmp}/lium" | awk '{print $1}')"
-fi
+actual="$("${sha256_cmd[@]}" "${tmp}/lium" | awk '{print $1}')"
 [[ "${actual}" == "${expected}" ]] ||
   die "checksum mismatch for ${asset}: expected ${expected}, got ${actual}"
 say "Checksum verified."
