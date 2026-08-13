@@ -19,60 +19,109 @@ die() {
   exit 1
 }
 
-os="$(uname -s)"
-case "${os}" in
-  Darwin) os="darwin" ;;
-  Linux) os="linux" ;;
-  *) die "unsupported OS: ${os}" ;;
-esac
+main() {
+  local os arch asset version tmp base_url expected actual install_dir
+  local -a sha256_cmd
 
-arch="$(uname -m)"
-case "${arch}" in
-  x86_64 | amd64) arch="amd64" ;;
-  arm64 | aarch64) arch="arm64" ;;
-  *) die "unsupported architecture: ${arch}" ;;
-esac
+  os="$(uname -s)"
+  case "${os}" in
+    Darwin) os="darwin" ;;
+    Linux) os="linux" ;;
+    *) die "unsupported OS: ${os}" ;;
+  esac
 
-asset="lium.${os}-${arch}"
-version="${LIUM_VERSION:-latest}"
+  arch="$(uname -m)"
+  case "${arch}" in
+    x86_64 | amd64) arch="amd64" ;;
+    arm64 | aarch64) arch="arm64" ;;
+    *) die "unsupported architecture: ${arch}" ;;
+  esac
 
-tmp="$(mktemp -d)"
-trap 'rm -rf "${tmp}"' EXIT
-
-say "Downloading ${asset} (${version})…"
-if [[ "${version}" == "latest" ]]; then
-  url="https://github.com/${REPO}/releases/latest/download/${asset}"
-else
-  url="https://github.com/${REPO}/releases/download/${version}/${asset}"
-fi
-curl -fsSL -o "${tmp}/lium" "${url}" || die "download failed: ${url}"
-chmod +x "${tmp}/lium"
-
-install_dir="${LIUM_INSTALL_DIR:-}"
-if [[ -z "${install_dir}" ]]; then
-  if [[ -d "${HOME}/.local/bin" || ! -w /usr/local/bin ]]; then
-    install_dir="${HOME}/.local/bin"
-  else
-    install_dir="/usr/local/bin"
+  asset="lium.${os}-${arch}"
+  version="${LIUM_VERSION:-latest}"
+  # The version becomes a URL path segment for both the binary and its
+  # checksum. Without validation, ../ can traverse into an attacker-owned
+  # repository and make a malicious binary verify against its own checksum.
+  if [[ "${version}" != "latest" &&
+    ! "${version}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?(\+[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+    die "invalid LIUM_VERSION: ${version}"
   fi
-fi
-mkdir -p "${install_dir}"
-mv "${tmp}/lium" "${install_dir}/lium"
 
-say "Installed ${install_dir}/lium"
-"${install_dir}/lium" --version || true
+  # Resolve the checksum tool before downloading anything. Verification is
+  # mandatory, and a missing tool should produce a useful error.
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256_cmd=(sha256sum)
+  elif command -v shasum >/dev/null 2>&1; then
+    sha256_cmd=(shasum -a 256)
+  else
+    die "no SHA-256 tool found (need sha256sum or shasum) — cannot verify the download"
+  fi
 
-case ":${PATH}:" in
-  *":${install_dir}:"*) ;;
-  *)
-    say ""
-    say "Add it to your PATH, e.g.:"
-    say "  echo 'export PATH=\"${install_dir}:\$PATH\"' >> ~/.zshrc && exec zsh"
-    ;;
-esac
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "${tmp}"' EXIT
 
-say ""
-say "Next steps:"
-say "  lium login    # one-time browser login"
-say "  lium          # interactive chat"
-say "  lium guide    # guide for AI coding agents (Claude Code, Cursor)"
+  if [[ "${version}" == "latest" ]]; then
+    base_url="https://github.com/${REPO}/releases/latest/download"
+  else
+    base_url="https://github.com/${REPO}/releases/download/${version}"
+  fi
+
+  say "Downloading ${asset} (${version})…"
+  curl -fsSL -o "${tmp}/lium" "${base_url}/${asset}" ||
+    die "download failed: ${base_url}/${asset}"
+  curl -fsSL -o "${tmp}/checksums.txt" "${base_url}/checksums.txt" ||
+    die "download failed: ${base_url}/checksums.txt"
+
+  # Verify the binary against the release's published checksum before
+  # installing anything onto PATH.
+  expected="$(awk -v name="${asset}" '
+    {
+      file = $2
+      sub(/^\*/, "", file)
+      if (file == name || file == "bin/" name) {
+        print $1
+        exit
+      }
+    }
+  ' "${tmp}/checksums.txt")"
+  [[ -n "${expected}" ]] || die "checksums.txt has no entry for ${asset}"
+  actual="$("${sha256_cmd[@]}" "${tmp}/lium" | awk '{print $1}')"
+  [[ "${actual}" == "${expected}" ]] ||
+    die "checksum mismatch for ${asset}: expected ${expected}, got ${actual}"
+  say "Checksum verified."
+  chmod +x "${tmp}/lium"
+
+  install_dir="${LIUM_INSTALL_DIR:-}"
+  if [[ -z "${install_dir}" ]]; then
+    if [[ -d "${HOME}/.local/bin" || ! -w /usr/local/bin ]]; then
+      install_dir="${HOME}/.local/bin"
+    else
+      install_dir="/usr/local/bin"
+    fi
+  fi
+  mkdir -p "${install_dir}"
+  mv "${tmp}/lium" "${install_dir}/lium"
+
+  say "Installed ${install_dir}/lium"
+  "${install_dir}/lium" --version || true
+
+  case ":${PATH}:" in
+    *":${install_dir}:"*) ;;
+    *)
+      say ""
+      say "Add it to your PATH, e.g.:"
+      say "  echo 'export PATH=\"${install_dir}:\$PATH\"' >> ~/.zshrc && exec zsh"
+      ;;
+  esac
+
+  say ""
+  say "Next steps:"
+  say "  lium login    # one-time browser login"
+  say "  lium          # interactive chat"
+  say "  lium guide    # guide for AI coding agents (Claude Code, Cursor)"
+}
+
+# Keep all side effects behind the final line: if a `curl | bash` transfer is
+# truncated, bash may receive function definitions but cannot run a partial
+# installer.
+main "$@"
