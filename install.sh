@@ -20,8 +20,11 @@ die() {
 }
 
 main() {
-  local os arch asset bin_name version tmp base_url expected actual install_dir
+  local os arch asset bin_name version base_url expected actual install_dir
   local -a sha256_cmd
+  # tmp is intentionally NOT local: the EXIT trap below fires after main returns,
+  # and a local tmp would be out of scope there, so set -u would abort cleanup
+  # with "tmp: unbound variable" on the success path.
 
   os="$(uname -s)"
   case "${os}" in
@@ -70,17 +73,53 @@ main() {
   tmp="$(mktemp -d)"
   trap 'rm -rf "${tmp}"' EXIT
 
-  if [[ "${version}" == "latest" ]]; then
-    base_url="https://github.com/${REPO}/releases/latest/download"
+  # Two download strategies, chosen automatically. During the pre-GA testing
+  # window the repo is internal, so the anonymous release URLs 404; an
+  # authenticated gh member can still fetch the assets, and gh follows the
+  # signed-asset redirect correctly where a plain curl with an Authorization
+  # header does not. When the repo is public again gh is simply skipped and the
+  # unchanged curl path runs, so the public behavior needs no re-validation.
+  # gh is opportunistic, never required: not installed, or not authenticated to
+  # github.com (where the assets live), falls through silently to curl — so a
+  # user logged in only to an Enterprise host still gets the public curl path
+  # instead of the gh strategy failing against github.com.
+  if command -v gh >/dev/null 2>&1 && gh auth status --hostname github.com >/dev/null 2>&1; then
+    say "Downloading ${asset} (${version}) via gh…"
+    # No tag argument means the latest non-prerelease, matching the semantics of
+    # the releases/latest/download URL; an explicit tag fetches that exact
+    # release (prerelease included), matching the pinned curl URL.
+    if [[ "${version}" == "latest" ]]; then
+      gh release download -R "${REPO}" \
+        --pattern "${asset}" --pattern "checksums.txt" --dir "${tmp}" ||
+        die "gh release download failed for ${asset} (latest) from ${REPO}; check 'gh auth status --hostname github.com' and that your account can read ${REPO}"
+    else
+      gh release download "${version}" -R "${REPO}" \
+        --pattern "${asset}" --pattern "checksums.txt" --dir "${tmp}" ||
+        die "gh release download failed for ${asset} (${version}) from ${REPO}; check 'gh auth status --hostname github.com' and that your account can read ${REPO}"
+    fi
+    # gh release download exits 0 as long as any --pattern matched, so confirm
+    # both files arrived — otherwise a release missing checksums.txt would slip
+    # past here and fail later with a cryptic awk error instead of this message.
+    # The curl branch guards the same case explicitly.
+    [[ -f "${tmp}/checksums.txt" ]] ||
+      die "gh did not download checksums.txt from the ${version} release of ${REPO}"
+    # The curl path saves the binary as ${tmp}/lium; rename to match so the
+    # checksum/verify/install code below is shared rather than duplicated.
+    mv "${tmp}/${asset}" "${tmp}/lium" ||
+      die "gh did not download an asset named ${asset} from the ${version} release of ${REPO}"
   else
-    base_url="https://github.com/${REPO}/releases/download/${version}"
-  fi
+    if [[ "${version}" == "latest" ]]; then
+      base_url="https://github.com/${REPO}/releases/latest/download"
+    else
+      base_url="https://github.com/${REPO}/releases/download/${version}"
+    fi
 
-  say "Downloading ${asset} (${version})…"
-  curl -fsSL -o "${tmp}/lium" "${base_url}/${asset}" ||
-    die "download failed: ${base_url}/${asset}"
-  curl -fsSL -o "${tmp}/checksums.txt" "${base_url}/checksums.txt" ||
-    die "download failed: ${base_url}/checksums.txt"
+    say "Downloading ${asset} (${version})…"
+    curl -fsSL -o "${tmp}/lium" "${base_url}/${asset}" ||
+      die "download failed: ${base_url}/${asset} (if the repo is not public yet, install gh and run: gh auth login)"
+    curl -fsSL -o "${tmp}/checksums.txt" "${base_url}/checksums.txt" ||
+      die "download failed: ${base_url}/checksums.txt (if the repo is not public yet, install gh and run: gh auth login)"
+  fi
 
   # Verify the binary against the release's published checksum before
   # installing anything onto PATH.
