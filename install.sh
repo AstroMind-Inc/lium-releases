@@ -20,14 +20,17 @@ die() {
 }
 
 main() {
-  local os arch asset version tmp base_url expected actual install_dir
+  local os arch asset bin_name version tmp base_url expected actual install_dir
   local -a sha256_cmd
 
   os="$(uname -s)"
   case "${os}" in
     Darwin) os="darwin" ;;
     Linux) os="linux" ;;
-    *) die "unsupported OS: ${os}" ;;
+    # Git Bash, MSYS2, and Cygwin report these; WSL reports Linux and installs
+    # the Linux binary. Native PowerShell/cmd has no bash — use install.ps1.
+    MINGW* | MSYS* | CYGWIN* | Windows_NT) os="windows" ;;
+    *) die "unsupported OS: ${os} (on native Windows, use install.ps1)" ;;
   esac
 
   arch="$(uname -m)"
@@ -38,6 +41,13 @@ main() {
   esac
 
   asset="lium.${os}-${arch}"
+  # Windows release binaries carry a .exe suffix, and the installed file needs
+  # it too so a Windows shell treats it as executable.
+  bin_name="lium"
+  if [[ "${os}" == "windows" ]]; then
+    asset="${asset}.exe"
+    bin_name="lium.exe"
+  fi
   version="${LIUM_VERSION:-latest}"
   # The version becomes a URL path segment for both the binary and its
   # checksum. Without validation, ../ can traverse into an attacker-owned
@@ -100,10 +110,10 @@ main() {
     fi
   fi
   mkdir -p "${install_dir}"
-  mv "${tmp}/lium" "${install_dir}/lium"
+  mv "${tmp}/lium" "${install_dir}/${bin_name}"
 
-  say "Installed ${install_dir}/lium"
-  "${install_dir}/lium" --version || true
+  say "Installed ${install_dir}/${bin_name}"
+  "${install_dir}/${bin_name}" --version || true
 
   case ":${PATH}:" in
     *":${install_dir}:"*) ;;
