@@ -97,6 +97,12 @@ main() {
         --pattern "${asset}" --pattern "checksums.txt" --dir "${tmp}" ||
         die "gh release download failed for ${asset} (${version}) from ${REPO}; check 'gh auth status --hostname github.com' and that your account can read ${REPO}"
     fi
+    # gh release download exits 0 as long as any --pattern matched, so confirm
+    # both files arrived — otherwise a release missing checksums.txt would slip
+    # past here and fail later with a cryptic awk error instead of this message.
+    # The curl branch guards the same case explicitly.
+    [[ -f "${tmp}/checksums.txt" ]] ||
+      die "gh did not download checksums.txt from the ${version} release of ${REPO}"
     # The curl path saves the binary as ${tmp}/lium; rename to match so the
     # checksum/verify/install code below is shared rather than duplicated.
     mv "${tmp}/${asset}" "${tmp}/lium" ||

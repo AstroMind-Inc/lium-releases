@@ -146,6 +146,44 @@ SHIM
   rm -rf "${shim}" "${dest}"
 done
 
+# A gh release that has the binary but no checksums.txt must die with the
+# explicit guard message, not the cryptic downstream "awk: can't open file"
+# error, and must install nothing. gh release download exits 0 as long as one
+# pattern matched, so the installer has to catch the missing file itself.
+shim="$(mktemp -d)"
+dest="$(mktemp -d)"
+cat >"${shim}/gh" <<'SHIM'
+#!/usr/bin/env bash
+case "$1" in
+  auth) exit 0 ;;
+  release)
+    shift 2
+    dir="."
+    patterns=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --dir | -D) dir="$2"; shift 2 ;;
+        --pattern) patterns+=("$2"); shift 2 ;;
+        -R) shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    for p in "${patterns[@]}"; do
+      [[ "${p}" == "checksums.txt" ]] && continue # simulate the missing file
+      printf '#!/bin/sh\necho x\n' >"${dir}/${p}"
+    done
+    exit 0 ;;
+esac
+exit 0
+SHIM
+chmod +x "${shim}/gh"
+out="$(env "PATH=${shim}:${PATH}" "LIUM_INSTALL_DIR=${dest}" bash "${installer}" 2>&1 || true)"
+printf '%s\n' "${out}" | grep -q 'did not download checksums.txt' ||
+  fail "gh release without checksums.txt did not fail with the guard message: ${out}"
+[[ -e "${dest}/lium" ]] &&
+  fail "gh release without checksums.txt still installed a binary"
+rm -rf "${shim}" "${dest}"
+
 # gh installed but NOT authenticated must fall through silently to curl, never
 # error out or prompt. Shim gh to fail `auth status`, and curl to record the URL
 # and stop, so branch selection is observable with no network.
@@ -180,9 +218,16 @@ cat >"${shim}/curl" <<'SHIM'
 exit 22
 SHIM
 chmod +x "${shim}/curl"
-# A PATH that has the shim curl and coreutils but no gh.
-no_gh_path="${shim}:/usr/bin:/bin"
-out="$(PATH="${no_gh_path}" GH_TOKEN='' GITHUB_TOKEN='' bash "${installer}" 2>&1 || true)"
+# Build a gh-free PATH by symlinking the tools the installer needs from wherever
+# they actually live, rather than hardcoding /usr/bin:/bin (which breaks on
+# distros that place coreutils elsewhere). gh is deliberately omitted so the
+# installer's `command -v gh` fails and it takes the anonymous curl branch. curl
+# is already shimmed above, so skip it here.
+for tool in bash uname mktemp awk chmod mkdir mv rm sha256sum shasum; do
+  src="$(command -v "${tool}" 2>/dev/null)" || continue
+  ln -s "${src}" "${shim}/${tool}"
+done
+out="$(PATH="${shim}" GH_TOKEN='' GITHUB_TOKEN='' bash "${installer}" 2>&1 || true)"
 printf '%s\n' "${out}" | grep -q 'download failed:' ||
   fail "anonymous curl branch did not report a download failure: ${out}"
 printf '%s\n' "${out}" | grep -q 'if the repo is not public yet' ||
