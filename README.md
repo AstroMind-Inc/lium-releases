@@ -22,6 +22,17 @@ macOS and Linux (Intel and ARM), single static binary, no dependencies:
 curl -fsSL https://raw.githubusercontent.com/AstroMind-Inc/lium-releases/main/install.sh | bash
 ```
 
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/AstroMind-Inc/lium-releases/main/install.ps1 | iex
+```
+
+On WSL, Git Bash, MSYS2, or Cygwin, use the `curl … | bash` command above
+instead — it installs the Linux binary on WSL and the `.exe` on the others.
+Both installers verify the download against the release's published sha256
+checksum before installing.
+
 Then:
 
 ```bash
@@ -70,9 +81,10 @@ an update is available. To update, rerun the install command above. Set
 
 ## What's here
 
-This repository hosts the install script and released binaries (with
+This repository hosts the install scripts (`install.sh` for macOS/Linux and
+Windows shells, `install.ps1` for native Windows) and released binaries (with
 checksums) only. The CLI is a thin client — all agent compute runs on the
-Lium platform. The installer verifies each binary against the release's
+Lium platform. Both installers verify each binary against the release's
 published sha256 checksums before installing it.
 
 ## License
