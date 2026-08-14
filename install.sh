@@ -79,9 +79,11 @@ main() {
   # signed-asset redirect correctly where a plain curl with an Authorization
   # header does not. When the repo is public again gh is simply skipped and the
   # unchanged curl path runs, so the public behavior needs no re-validation.
-  # gh is opportunistic, never required: not installed or not authenticated
-  # falls through silently to curl.
-  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  # gh is opportunistic, never required: not installed, or not authenticated to
+  # github.com (where the assets live), falls through silently to curl — so a
+  # user logged in only to an Enterprise host still gets the public curl path
+  # instead of the gh strategy failing against github.com.
+  if command -v gh >/dev/null 2>&1 && gh auth status --hostname github.com >/dev/null 2>&1; then
     say "Downloading ${asset} (${version}) via gh…"
     # No tag argument means the latest non-prerelease, matching the semantics of
     # the releases/latest/download URL; an explicit tag fetches that exact
@@ -89,11 +91,11 @@ main() {
     if [[ "${version}" == "latest" ]]; then
       gh release download -R "${REPO}" \
         --pattern "${asset}" --pattern "checksums.txt" --dir "${tmp}" ||
-        die "gh release download failed for ${asset} (latest) from ${REPO}; check 'gh auth status' and that your account can read ${REPO}"
+        die "gh release download failed for ${asset} (latest) from ${REPO}; check 'gh auth status --hostname github.com' and that your account can read ${REPO}"
     else
       gh release download "${version}" -R "${REPO}" \
         --pattern "${asset}" --pattern "checksums.txt" --dir "${tmp}" ||
-        die "gh release download failed for ${asset} (${version}) from ${REPO}; check 'gh auth status' and that your account can read ${REPO}"
+        die "gh release download failed for ${asset} (${version}) from ${REPO}; check 'gh auth status --hostname github.com' and that your account can read ${REPO}"
     fi
     # The curl path saves the binary as ${tmp}/lium; rename to match so the
     # checksum/verify/install code below is shared rather than duplicated.
