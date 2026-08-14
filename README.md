@@ -28,7 +28,7 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/AstroMind-Inc/lium-releases/main/install.ps1 | iex
 ```
 
-On WSL, Git Bash, MSYS2, or Cygwin, use the `curl … | bash` command above
+On WSL, Git Bash, MSYS2, or Cygwin, use the bash install command above
 instead — it installs the Linux binary on WSL and the `.exe` on the others.
 Both installers verify the download against the release's published sha256
 checksum before installing.

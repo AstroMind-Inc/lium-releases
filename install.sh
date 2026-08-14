@@ -20,7 +20,7 @@ die() {
 }
 
 main() {
-  local os arch asset version tmp base_url expected actual install_dir
+  local os arch asset bin_name version tmp base_url expected actual install_dir
   local -a sha256_cmd
 
   os="$(uname -s)"

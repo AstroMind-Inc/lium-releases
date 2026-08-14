@@ -37,11 +37,14 @@ try {
     # surface a clear TLS error if the negotiated protocol is actually too old.
 }
 
-# Architecture.
-switch ($env:PROCESSOR_ARCHITECTURE) {
+# Architecture. A 32-bit PowerShell host on 64-bit Windows reports x86 in
+# PROCESSOR_ARCHITECTURE while the real OS arch lives in PROCESSOR_ARCHITEW6432;
+# prefer the latter when present so we don't wrongly reject a 64-bit machine.
+$procArch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+switch ($procArch) {
     'AMD64' { $arch = 'amd64' }
     'ARM64' { $arch = 'arm64' }
-    default { Die "unsupported architecture: $($env:PROCESSOR_ARCHITECTURE)" }
+    default { Die "unsupported architecture: $procArch" }
 }
 $asset = "lium.windows-$arch.exe"
 
