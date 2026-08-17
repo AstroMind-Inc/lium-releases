@@ -33,6 +33,12 @@ instead — it installs the Linux binary on WSL and the `.exe` on the others.
 Both installers verify the download against the release's published sha256
 checksum before installing.
 
+If `lium: command not found`, its directory isn't on your `PATH`. The installer
+puts `lium` in `~/.local/bin` (or `/usr/local/bin`, or `$LIUM_INSTALL_DIR`), and
+when that directory isn't already on your `PATH` it prints a one-line command to
+add it — run that line and restart your shell. `~/.local/bin` is often not on
+`PATH` by default on macOS.
+
 Then:
 
 ```bash
